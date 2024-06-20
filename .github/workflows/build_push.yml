@@ -1,0 +1,73 @@
+name: CI
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build app
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+           
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.21' 
+  
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v2
+        with:
+          sdk-version: '30' 
+  
+      - name: Install Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25b
+  
+      - name: Install GoMobile
+        run: go install golang.org/x/mobile/cmd/gomobile@latest
+  
+      - name: Build GoMobile app
+        run: |
+          go get golang.org/x/mobile/bind
+          gomobile init
+          cd bindings
+          gomobile bind -target=android -androidapi 23 -ldflags "-s -w" -o ../torrserver.aar
+          
+      - name: Commit build library
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add app/libs/server.aar
+          git add app/libs/server-sources.jar
+          git commit -m "Add compiled torrserver library"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: ${{ env.VERSION_TAG }}
+          name: TorrentServer Aniyomi ${{ env.VERSION_TAG }}
+          body: |
+            ---
+          files: |
+            torrserver.aar
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
